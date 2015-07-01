@@ -1,0 +1,134 @@
+package ricart_agrawala;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousCloseException;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.channels.UnresolvedAddressException;
+
+import com.sun.nio.sctp.MessageInfo;
+import com.sun.nio.sctp.SctpChannel;
+
+public class Connect_Thread implements Runnable {
+
+	/*
+	 * Connect Thread:
+	 * Initializes the object for sending data to another server 
+	 */
+	
+	final int MESSAGE_SIZE = 1000;
+	public static final String domain = ".utdallas.edu";
+	
+	FIFO_Connect_Process fIFO_Connect_Process = null;
+	
+	public Connect_Thread(FIFO_Connect_Process fIFO_Connect_Process)
+	{
+		if( fIFO_Connect_Process == null)
+		{
+			System.out.println("\n ERROR: Connect has not been initialized, exiting");
+			return;
+		}
+		
+		this.fIFO_Connect_Process = fIFO_Connect_Process;
+	}
+	
+	public void run() {
+		
+		while(true)
+		{
+			// Gets blocked here if FIFO is empty
+			// Put data format - "next=controlMsg"
+			// next: "dc01-12345"
+			// controlMsg: "REQ Pid Tid", "REP Pid", "DONE Pid"
+			String data = fIFO_Connect_Process.getFIFO();
+			
+			if(!data.equals("NULL"))
+			{
+				String temp[] = data.split("=");
+				String next = temp[0];
+				String controlMsg = temp[1];
+				
+				live(next, controlMsg);
+			}
+		}
+	}
+	
+	// next: "dc01-12345"
+	// controlMsg: "REQ Pid Tid", "REP Pid", "DONE Pid"
+	public void live(String next, String controlMsg)
+	{
+		SctpChannel sctpChannel = null;
+		try
+		{
+			System.out.println("------ Sending Message:"+controlMsg+". , "+"TO = "+next);
+			String[] tempArray = next.split("-");
+			String hostname = new StringBuffer(tempArray[0]).append(domain).toString();
+			int port = Integer.parseInt(tempArray[1]);
+			
+			//Buffer to hold messages in byte format
+			ByteBuffer byteBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
+			//Create a socket address to send to server at hostname at port
+			SocketAddress socketAddress = new InetSocketAddress(hostname,port);
+			// Open a channel. NOT SERVER CHANNEL
+			// The new channel is unbound and unconnected.
+			sctpChannel = SctpChannel.open();
+			sctpChannel.bind(new InetSocketAddress(0));
+			
+			// Connect the channel's socket to the remote server, 
+			// this throws exception of Connection Refused
+			sctpChannel.connect(socketAddress);
+			
+			MessageInfo messageInfo = MessageInfo.createOutgoing(null,0);
+			// Convert the string message into bytes and put it in the byte buffer
+			byteBuffer.put(controlMsg.getBytes(),0,controlMsg.getBytes().length);
+			// Reset a pointer to point to the start of buffer
+			byteBuffer.flip();
+			// Send a message in the channel (byte format)
+			sctpChannel.send(byteBuffer,messageInfo);
+			
+		}
+		catch(UnsupportedOperationException e)
+		{
+			System.out.println("UnsupportedOperationException in Client : "+e.getMessage());
+			e.printStackTrace();
+		}
+		catch(UnresolvedAddressException e)
+		{
+			System.out.println("UnresolvedAddessException in Client : "+e.getMessage());
+			e.printStackTrace();
+		}
+		catch(ClosedByInterruptException e)
+		{
+			System.out.println("ClosedByInterruptException in Client : "+e.getMessage());
+			e.printStackTrace();
+		}
+		catch(AsynchronousCloseException e)
+		{
+			System.out.println("AsyncCloseException in Client : "+e.getMessage());
+			e.printStackTrace();
+		}
+		catch(IOException e)
+		{
+			System.out.println("IOException in Client : "+e.getMessage());
+			e.printStackTrace();
+		}
+		finally
+		{
+			if(sctpChannel != null)
+			{
+				try 
+				{
+					sctpChannel.close();
+				} 
+				catch (IOException e) 
+				{
+					System.out.println("In Client: Error while Closing Channel");
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+	
+}
