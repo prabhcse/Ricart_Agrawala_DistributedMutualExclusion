@@ -1,0 +1,101 @@
+package ricart_agrawala;
+
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.ArrayList;
+
+public class Main {
+
+	/**
+	 * @Author: Prabhmanmeet Singh
+	 */
+	/*
+	 * Handles Creation of various threads, to execute given protocol
+	 */
+	public static void main(String[] args) {
+		// Integer - Process ID
+		// String - (host name-port)
+//		HashMap<Integer, String> nodeValue = new HashMap<Integer, String>();
+		ArrayList<String> nodes = new ArrayList<String>();		// index is process id
+		ArrayList<Integer> ports = new ArrayList<Integer>();
+		// Current Process's Index, passed at runtime, start from 1
+		int index = Integer.parseInt(args[0]);
+		System.out.println("\n Process ID:"+index);
+		try
+		{
+//			BufferedReader reader = new BufferedReader(new FileReader("D:\\AOS_PAPER_RICART\\Ricart_Agrawala_Protocol\\src\\ricart_agrawala\\Configuration File.txt"));
+			BufferedReader reader = new BufferedReader(new FileReader("/home/004/p/px/pxs134830/AOS_New/ricart_agrawala/Configuration File.txt"));
+			String line = null;
+			// get the number of nodes
+			boolean nodesVal = true;
+			int nodeCount = 0;
+			int hostCount = 0;
+			
+			while((line = reader.readLine()) != null)
+			{
+				String[] buffer = line.split(" ");
+				// Skipping the # lines - Commented
+				if(buffer[0].equals("#") || line.isEmpty()){
+					continue;
+				}
+				else if(nodesVal){				// Assuming the number of nodes occur first 
+					nodesVal = false;
+					nodeCount = Integer.parseInt(buffer[0]); // same as host count variable
+					System.out.println("Number of Nodes:"+nodeCount);
+				}
+				else if(!nodesVal){
+					// Getting the hostname, port
+					hostCount++;
+					nodes.add(buffer[0]);
+					ports.add(Integer.parseInt (buffer[1]) );
+				}
+				
+			}
+			
+			// Details shown:
+			System.out.println("\nNodes :");
+			for(int i = 0; i < hostCount; i++){
+				System.out.println(i+" : "+nodes.get(i)+" , "+ports.get(i));
+			}
+			
+			if(nodeCount != hostCount)
+			{
+				System.out.println("\n ERROR: nodeCount does not match hostCount.");
+			}
+			
+		}
+		catch (FileNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		catch(IOException e)
+		{
+			System.out.println("\n IOException:"+e.getMessage());
+		}
+		
+		FIFO_Connect_Process fifo_Connect_Process = new FIFO_Connect_Process();
+		FIFO_Server_Process fifo_Server_Process = new FIFO_Server_Process();
+		CS_Module cs_Module = new CS_Module(); 
+		
+		Critical_Section_Module csm = new Critical_Section_Module(fifo_Connect_Process, cs_Module, nodes.get(index-1), ports.get(index-1));
+		Process process = new Process(nodes, ports, cs_Module, fifo_Server_Process, fifo_Connect_Process, index-1);
+		
+		// Server Thread Started
+		Thread serverTH = new Thread(new Server_Thread( ports.get(index-1), fifo_Server_Process ));
+		// Connect Thread Started
+		Thread connectTH = new Thread(new Connect_Thread(fifo_Connect_Process));
+		// Process Thread Started
+		Thread processTH = new Thread(process);
+		// Critical Module Thread
+		Thread csmodTH = new Thread(csm);
+		
+		serverTH.start();
+		connectTH.start();
+		processTH.start();
+		csmodTH.start();
+		
+	}	// End of main
+	
+}
