@@ -1,0 +1,21 @@
+package ricart_agrawala;
+
+public class CS_Module {
+	
+	// Critical Section Module
+	public synchronized void cs_enter_Ask()
+	{
+		try {
+			wait();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	// Process
+	public synchronized void cs_enter_Permit()
+	{
+		notify();
+	}
+	
+}
