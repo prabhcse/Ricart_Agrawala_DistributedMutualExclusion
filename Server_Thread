@@ -1,0 +1,74 @@
+package ricart_agrawala;
+
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import com.sun.nio.sctp.MessageInfo;
+import com.sun.nio.sctp.SctpChannel;
+import com.sun.nio.sctp.SctpServerChannel;
+
+public class Server_Thread implements Runnable {
+	
+	/*
+	 * Server Thread:
+	 * Initializes the server
+	 */
+	
+	final int MESSAGE_SIZE = 1000;
+	int myPort = 0; 
+	FIFO_Server_Process fifo_Server_Process = null;
+	
+	public Server_Thread(int myPort, FIFO_Server_Process fifo_Server_Process)
+	{
+		this.myPort = myPort;
+		this.fifo_Server_Process = fifo_Server_Process;
+	}
+
+	public void run() {
+		SctpServerChannel serverChannel = null;
+		ByteBuffer byteBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
+		try
+		{
+			// Starting current server
+			serverChannel = SctpServerChannel.open();
+			InetSocketAddress serverAddr = new InetSocketAddress(myPort);
+			serverChannel.bind(serverAddr);
+			String IPtemp = InetAddress.getLocalHost().getHostName();
+			System.out.println("\n Server Up : "+IPtemp+" , "+myPort);
+			
+			while(true)
+			{
+				// Blocks till the receive event occurs
+				SctpChannel sctpCh = serverChannel.accept();
+				MessageInfo messageInfo = sctpCh.receive(byteBuffer, null, null);
+//				System.out.println("MessageInfo: "+messageInfo);
+				
+				String messagePart = byteToString(byteBuffer, messageInfo.bytes());
+				
+				// Clearing to receive message
+				byteBuffer.clear();
+				
+				// Send to Process
+				fifo_Server_Process.putFIFO(messagePart);
+			}
+			
+		}
+		catch(IOException e)
+		{
+			System.out.println("\n IOException:"+e.getMessage());
+		}
+	}
+	
+	// This is returning the whole Message Size, need to find the Message
+	public String byteToString(ByteBuffer byteBuffer, int length)
+	{
+		byteBuffer.position(0);
+		byteBuffer.limit(MESSAGE_SIZE);
+		// remaining() - Returns the number of elements between the current position and the limit.
+		byte[] bufArr = new byte[length];
+		byteBuffer.get(bufArr);
+		return new String(bufArr);
+	}
+	
+}
