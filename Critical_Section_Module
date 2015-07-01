@@ -1,0 +1,105 @@
+package ricart_agrawala;
+
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+// Keep on executing CS, when running CS block the Process
+// Otherwise, on sleep.
+public class Critical_Section_Module implements Runnable {
+	
+	FIFO_Connect_Process connect = null;
+	CS_Module cs_ask = null;
+	String myNode = null;
+	int myPort = 0;
+	
+	public Critical_Section_Module(FIFO_Connect_Process connect, CS_Module cs_ask, String myNode, int myPort)
+	{
+		this.connect = connect;
+		this.myNode = myNode;
+		this.myPort = myPort;
+		this.cs_ask = cs_ask;
+		
+		if( this.connect == null || this.myNode == null || this.cs_ask == null || this.myPort == 0 )
+		{
+			System.out.println("\n ERROR: FIFO queue for connection is not up");
+			return;
+		}
+		
+	}
+	
+	// Introduce the critical section function to run here
+	public void execute_CS()
+	{
+		System.out.println("\n Executing Critical Section:");
+		for(int i = 1; i <= 10; i++)
+		{
+			System.out.println("Critical Section : "+i);
+			try {
+				TimeUnit.SECONDS.sleep(1);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+		System.out.println();
+	}
+	
+	// Updated by Permission from Process Thread
+	// Not required to be synchronized
+	public void cs_enter()
+	{
+		StringBuffer msgToSend = new StringBuffer().append("SEND");
+		StringBuffer destination = new StringBuffer().append(myNode).append("-").append(myPort);
+		// dc11-12345=SEND
+		connect.putFIFO(destination.append("=").append(msgToSend).toString());
+		// Goes into wait, till signaled by Process
+		cs_ask.cs_enter_Ask();
+	}
+	
+	// Send self message telling about CS executed
+	public void cs_leave()
+	{
+		StringBuffer msgToSend = new StringBuffer().append("DONE");
+		StringBuffer destination = new StringBuffer().append(myNode).append("-").append(myPort);
+		// dc11-12345=DONE
+		connect.putFIFO(destination.append("=").append(msgToSend).toString());
+	}
+
+	public void cs_terminate()
+	{
+		StringBuffer msgToSend = new StringBuffer().append("TERM");
+		StringBuffer destination = new StringBuffer().append(myNode).append("-").append(myPort);
+		// dc11-12345=DONE
+		connect.putFIFO(destination.append("=").append(msgToSend).toString());
+	}
+	public void run() {
+		System.out.println("\n Module is UP, Node:"+myNode+", Port:"+myPort);
+		
+		// Initial Pause just to make sure all servers are up, no message sent, just manual
+		try 
+		{
+			TimeUnit.SECONDS.sleep(10 + new Random().nextInt(10));
+		}
+		catch (InterruptedException e) 
+		{
+			e.printStackTrace();
+		}
+		
+		// Critical Section Code
+		for(int i = 1; i <= 5; i++)
+		{
+			cs_enter();
+			execute_CS();
+			cs_leave();
+			
+			try 
+			{
+				TimeUnit.SECONDS.sleep(8);
+			}
+			catch (InterruptedException e) 
+			{
+				e.printStackTrace();
+			}
+		}
+		cs_terminate();
+	}
+}
