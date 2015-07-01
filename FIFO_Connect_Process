@@ -1,0 +1,55 @@
+package ricart_agrawala;
+
+import java.util.LinkedList;
+
+// Keeps the requests in a queue
+public class FIFO_Connect_Process {
+	
+	LinkedList<String> fifo;
+	String data;
+	
+	public FIFO_Connect_Process()
+	{
+		fifo = new LinkedList<String>();
+		data = new String();
+	}
+	
+	public synchronized void putFIFO(String data)
+	{
+		if(fifo != null)
+		{
+			// No upper limit on size of queue
+			fifo.add(data);
+			notify();
+		}
+		else
+		{
+			System.out.println("\n ERROR : putFIFO: fifo object should not be null.");
+		}
+	}
+	
+	public synchronized String getFIFO()
+	{
+		try
+		{
+				if(fifo != null && fifo.isEmpty())
+				{
+					wait();
+				}
+				
+				if(fifo != null && !fifo.isEmpty())
+				{
+					data = new String(fifo.get(0));
+					fifo.remove(0);
+					return data;
+				}
+		}
+		catch(Exception e)
+		{
+			System.out.println("Exception in FIFO.");
+			e.printStackTrace();
+		}
+		return "NULL";
+	}
+	
+}
