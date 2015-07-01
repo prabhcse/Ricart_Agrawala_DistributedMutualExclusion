@@ -1,0 +1,315 @@
+package ricart_agrawala;
+
+import java.util.ArrayList;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+// Acts as Process
+public class Process implements Runnable {
+
+	ArrayList<String> nodes = null;
+	ArrayList<Integer> ports = null;
+	// Will be used as part of Roucairol Carvalho
+	ArrayList<Integer> replyRecord = null;
+	// Just keep list of requests sent by processes, stores Pid
+	ArrayList<Integer> requestQueue = null;
+	int myIndex = 0;
+	FIFO_Server_Process fifo_Server_Process = null;
+	FIFO_Connect_Process fifo_Connect_Process = null;
+	CS_Module cs_tell = null;
+	
+	// Logical Clock, Timestamp
+	int clock = 0;
+	int highRcvdClock = 0;
+	// No of Replies for my Request
+	int repliesForMe = 0;
+	// Termination detection
+	int terminated = 0;
+	// Corner cases of Termination, I am last to Terminate
+	boolean sendTerm = false;
+	// Critical Section Flag
+	boolean critical = false;
+	// My Own CS request Flag
+	boolean myRequest = false;
+	
+	public Process(ArrayList<String> nodes, ArrayList<Integer> ports, CS_Module cs_tell, 
+			FIFO_Server_Process fifo_Server_Process, FIFO_Connect_Process fifo_Connect_Process, int index)
+	{
+		if( nodes == null || nodes.isEmpty() || ports == null || ports.isEmpty() ||
+				fifo_Server_Process == null || fifo_Connect_Process == null || cs_tell == null )
+		{
+			System.out.println("\n ERROR: Server has not been initialized, exiting");
+			System.exit(1);
+		}
+
+		this.nodes = nodes;
+		this.ports = ports;
+		
+		replyRecord = new ArrayList<Integer>();
+		for(int i = 0; i < nodes.size(); i++)
+		{
+			replyRecord.add(0);
+		}
+		
+		// Holds the deferred requests sent to this process
+		requestQueue = new ArrayList<Integer>();
+		
+		// Random Start
+		clock += ( (new Random().nextInt(10)) + 1 );
+		
+		myIndex = index;
+		this.fifo_Server_Process = fifo_Server_Process;
+		this.fifo_Connect_Process = fifo_Connect_Process;
+		this.cs_tell = cs_tell;
+	}
+	
+	public void run() 
+	{	
+		// Current Process Starting
+		System.out.println("Process:"+myIndex+" thread started");
+		System.out.println("Machine:"+nodes.get(myIndex)+", Port:"+ports.get(myIndex));
+		
+		// tracks first request ever, to reduce number of requests sent at start
+		// Part of Roucairol Carvalho
+		boolean first = true;
+		
+		// Wait to make sure all Servers are up
+		try {
+			TimeUnit.SECONDS.sleep(7);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		
+		// For now no Terminal Detection
+		while(true)
+		{
+			// next: "dc01-12345"
+			// controlMsg: "REQ Pid Tid", "REP Pid", "DONE Pid"
+			// Waits if queue is empty, Check for Interrupted Exception
+			String messagePart = fifo_Server_Process.getFIFO();
+			
+			String[] msg = messagePart.split(" ");
+			System.out.println("--- Received Message:"+messagePart+".");
+			
+			// Format: REQ Pid Tid
+			if(msg[0].equals("REQ"))
+			{
+				if(msg.length != 3)
+				{
+					System.out.println("\n ERROR: Insufficient parameters");
+					System.exit(1);
+				}
+				int senderId = Integer.parseInt(msg[1]);
+				String senderMC = nodes.get(senderId);
+				int senderPort = ports.get(senderId);
+				
+				if(senderId == myIndex)
+				{
+					System.out.println("\n ERROR: cannot send REQ to myself");
+					System.exit(1);
+				}
+				
+				// Update to highest value, out of received clock
+				if( highRcvdClock < Integer.parseInt(msg[2]) )
+				{
+					highRcvdClock = Integer.parseInt(msg[2]);
+				}
+				
+				if(critical)
+				{
+					// In my critical section, defer request
+					requestQueue.add(senderId);
+				}
+				else 
+				{
+					// My own Unfulfilled request
+					if(myRequest)
+					{
+						// Check time stamp
+						int remoteClock = Integer.parseInt(msg[2]);
+						// Defer: local clock is less, if same, then myIndex is less
+						if( clock < remoteClock || (clock == remoteClock && myIndex < senderId) )
+						{
+							requestQueue.add(senderId);
+						}
+						else
+						{
+							// Receive Event, but clock not updated as my own clock is higher or equal to REQ message
+							// Send Reply
+							StringBuffer msgToSend = new StringBuffer().append("REP").append(" ").append(myIndex);
+							StringBuffer destination = new StringBuffer().append(senderMC).append("-").append(senderPort);
+
+							fifo_Connect_Process.putFIFO(destination.append("=").append(msgToSend).toString());
+						}
+					}
+					else
+					{
+						// Update my clock as this is a RECEIVE EVENT
+						int remoteClock = Integer.parseInt(msg[2]);
+						if( clock < remoteClock )
+						{
+							clock += ( (new Random().nextInt(10)) + 1 + remoteClock );
+						}
+						// Send Reply
+						StringBuffer msgToSend = new StringBuffer().append("REP").append(" ").append(myIndex);
+						StringBuffer destination = new StringBuffer().append(senderMC).append("-").append(senderPort);
+						
+						fifo_Connect_Process.putFIFO(destination.append("=").append(msgToSend).toString());
+					}
+				}
+				
+			}
+			// Format: REP Pid
+			else if(msg[0].equals("REP"))
+			{
+				if(msg.length != 2)
+				{
+					System.out.println("\n ERROR: Insufficient parameters");
+					System.exit(1);
+				}
+				
+				if(Integer.parseInt(msg[1]) == myIndex)
+				{
+					System.out.println("\n ERROR: cannot send REP to myself");
+					System.exit(1);
+				}
+				
+				// No check for duplicate replies
+				if(myRequest)
+				{
+					repliesForMe++;
+					// If all replies received, then run CS, should be same Object as Described in main
+					if( repliesForMe == (nodes.size()-1) )
+					{
+						// Reset for new Req, termination detection
+						repliesForMe = 0;
+						// Critical Phase, Run Critical Section
+						critical = true;
+						// Request Phase over
+						myRequest = false;
+						// Signals CS run, notify
+						cs_tell.cs_enter_Permit();
+					}
+				}
+				else
+				{
+					System.out.println("\n ERROR: Incorrect Reply message");
+					System.exit(1);
+				}
+				
+			}
+			// Format: TERM Pid, TERM only myself, termination detection
+			else if(msg[0].equals("TERM"))
+			{
+				if(msg.length > 2)
+				{
+					System.out.println("\n ERROR: Incorrect Parameters");
+					System.exit(1);
+				}
+				// Send out, I am finished with all of my CS executions
+				if(msg.length == 1)
+				{
+					sendTerm = true;
+					// Signals Critical Section Executions Done
+					for(int i = 0; i < nodes.size(); i++)
+					{
+						if(myIndex != i)
+						{
+							StringBuffer msgToSend = new StringBuffer().append("TERM").append(" ").append(myIndex);
+							StringBuffer destination = new StringBuffer().append(nodes.get(i)).append("-").append(ports.get(i));
+							
+							fifo_Connect_Process.putFIFO(destination.append("=").append(msgToSend).toString());
+						}
+					}
+					// If I am the last to terminate, will send TERM messages and then terminate
+					if(terminated == nodes.size()-1 && sendTerm)
+					{
+						System.out.println("\n PROCESS "+myIndex+" TERMINATED");
+						break;
+					}
+				}
+				// No check for duplicates
+				// If I am last to terminate
+				else if(msg.length == 2)
+				{
+					terminated++;
+					// Keep track of TERM sent by other processes
+					if(terminated == nodes.size()-1 && sendTerm)
+					{
+						System.out.println("\n PROCESS "+myIndex+" TERMINATED");
+						break;
+					}
+				}
+			}
+			// Format: SEND, send requests for critical section, self message sent by CS_Module
+			else if(msg[0].equals("SEND"))
+			{
+				if(msg.length != 1)
+				{
+					System.out.println("\n ERROR: Incorrect Parameters");
+					System.exit(1);
+				}
+				// I have my own CS to Run
+				myRequest = true;
+				// put into fifo for Connect
+				for(int i = 0; i < nodes.size(); i++)
+				{
+					if(myIndex != i)				// except myself, I always have my own permission
+					{
+						// REQ Pi Ti
+						StringBuffer msgToSend = new StringBuffer().append("REQ").append(" ").append(myIndex).append(" ").append(clock);
+						StringBuffer destination = new StringBuffer().append(nodes.get(i)).append("-").append(ports.get(i));
+						
+						fifo_Connect_Process.putFIFO(destination.append("=").append(msgToSend).toString());
+					}
+				}
+			}
+			// Format: DONE, tells that Critical Section has been completed
+			else if(msg[0].equals("DONE"))
+			{
+				if(msg.length != 1)
+				{
+					System.out.println("\n ERROR: Incorrect Parameters");
+					System.exit(1);
+				}
+				// Reply back deferred Requests
+				critical = false;
+				
+				// Update to highest value received via REQ, deferred messages
+				if( clock < highRcvdClock )
+				{
+					clock = highRcvdClock;
+				}
+				
+				clock += ( (new Random().nextInt(20)) + 1 );
+				
+				// Empty Request Queue after done
+				for(int i = 0; i < requestQueue.size(); i++)
+				{
+					if(myIndex != requestQueue.get(i))				// except myself, I always have my own permission
+					{
+						// REP Pi
+						StringBuffer msgToSend = new StringBuffer().append("REP").append(" ").append(myIndex);
+						StringBuffer destination = new StringBuffer().append(nodes.get(requestQueue.get(i))).append("-").append(ports.get(requestQueue.get(i)));
+						// dc01-12345=REP Pi
+						fifo_Connect_Process.putFIFO(destination.append("=").append(msgToSend).toString());
+					}
+					else
+					{
+						System.out.println("\n Error: Cannot send Req to myself");
+						System.exit(1);
+					}
+				}
+				requestQueue.clear(); requestQueue = new ArrayList<Integer>();
+			}
+			else
+			{
+				System.out.println("\n ERROR: Unknown Message Format:"+messagePart+".");
+			}
+			
+		}
+
+	}
+	
+		
+}
